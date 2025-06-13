@@ -4,10 +4,11 @@ import librosa
 import numpy as np
 import torch
 import cv2
+from pydub import AudioSegment
+import io
 
 app = FastAPI()
 
-# Endpoint raíz para comprobar que el backend está activo
 @app.get("/")
 def root():
     return {"message": "Backend funcionando correctamente"}
@@ -44,7 +45,14 @@ model.load_state_dict(torch.load('simple_cnn_heartsound.pth', map_location='cpu'
 model.eval()
 
 def preprocess_audio(file_bytes):
-    y, sr = librosa.load(file_bytes, sr=16000, mono=True)
+    # Convertir cualquier formato a WAV usando pydub
+    audio = AudioSegment.from_file(io.BytesIO(file_bytes))  # autodetecta formato
+    wav_io = io.BytesIO()
+    audio.export(wav_io, format="wav")
+    wav_io.seek(0)
+
+    # Procesar el audio WAV convertido con librosa
+    y, sr = librosa.load(wav_io, sr=16000, mono=True)
     S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=64, fmax=8000)
     S_db = librosa.power_to_db(S, ref=np.max)
     S_db_norm = (S_db - S_db.min()) / (S_db.max() - S_db.min())
@@ -62,7 +70,9 @@ async def predict(file: UploadFile = File(...)):
             probs = torch.softmax(output, dim=1)
             prob, pred = torch.max(probs, 1)
         labels = ['Normal', 'Anormal']
-        return JSONResponse(content={"prediction": labels[pred.item()], "probability": float(prob.item())})
+        return JSONResponse(content={
+            "prediction": labels[pred.item()],
+            "probability": float(prob.item())
+        })
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=400)
-
