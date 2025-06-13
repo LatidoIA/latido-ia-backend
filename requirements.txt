@@ -4,3 +4,4 @@ librosa
 torch
 numpy
 opencv-python-headless
+python-multipart
