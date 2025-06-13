@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+librosa
+torch
+numpy
+opencv-python-headless
