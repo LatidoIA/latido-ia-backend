@@ -1,9 +1,11 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
+from pydub import AudioSegment
 import librosa
 import numpy as np
 import torch
 import cv2
+import io
 
 app = FastAPI()
 
@@ -38,8 +40,18 @@ model = SimpleCNN()
 model.load_state_dict(torch.load('simple_cnn_heartsound.pth', map_location='cpu'))
 model.eval()
 
+def convertir_audio_a_librosa(file_bytes):
+    audio = AudioSegment.from_file(io.BytesIO(file_bytes))
+    audio = audio.set_channels(1)          # Mono
+    audio = audio.set_frame_rate(16000)    # 16 kHz
+    buffer = io.BytesIO()
+    audio.export(buffer, format="wav")
+    buffer.seek(0)
+    return buffer
+
 def preprocess_audio(file_bytes):
-    y, sr = librosa.load(file_bytes, sr=16000, mono=True)
+    wav_buffer = convertir_audio_a_librosa(file_bytes)
+    y, sr = librosa.load(wav_buffer, sr=16000, mono=True)
     S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=64, fmax=8000)
     S_db = librosa.power_to_db(S, ref=np.max)
     S_db_norm = (S_db - S_db.min()) / (S_db.max() - S_db.min())
