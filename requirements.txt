@@ -1,7 +1,8 @@
 fastapi
 uvicorn
-librosa
 torch
+librosa
 numpy
 opencv-python-headless
 python-multipart
+pydub
