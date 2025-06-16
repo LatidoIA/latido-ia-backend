@@ -11,13 +11,13 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Puedes restringir a tu dominio más adelante
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Carga del modelo entrenado
+# Carga del modelo
 with open("modelo_latido_rf_final.pkl", "rb") as f:
     modelo = pickle.load(f)
 
@@ -28,20 +28,19 @@ def root():
 @app.post("/analisis")
 async def analizar_audio(audio: UploadFile = File(...), glucosa: float = Form(...)):
     try:
-        # Guardar archivo temporalmente
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        # Guardar archivo con la extensión original
+        extension = audio.filename.split('.')[-1]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{extension}") as tmp:
             tmp.write(await audio.read())
             audio_path = tmp.name
 
-        # Extraer características del audio
+        # Cargar audio
         y, sr = librosa.load(audio_path, sr=None)
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
         mfcc_mean = np.mean(mfcc, axis=1)
 
-        # Combinar con glucosa
+        # Mezclar con glucosa
         entrada = np.append(mfcc_mean, glucosa).reshape(1, -1)
-
-        # Predecir
         pred = modelo.predict(entrada)[0]
 
         return {
@@ -53,4 +52,5 @@ async def analizar_audio(audio: UploadFile = File(...), glucosa: float = Form(..
     except Exception as e:
         return {"error": str(e)}
     finally:
-        os.remove(audio_path)
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
