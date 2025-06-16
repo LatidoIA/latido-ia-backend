@@ -50,8 +50,11 @@ async def analizar_audio(audio: UploadFile = File(...), glucosa: float = Form(..
             "accion": "Sigue con tu rutina" if pred == 2 else "Recomendamos visitar un médico"
         }
 
-    except Exception as e:
-        return {"error": str(e)}
-    finally:
-        if os.path.exists(audio_path):
+ except Exception as e:
+    return {"error": str(e)}
+finally:
+    try:
+        if 'audio_path' in locals() and os.path.exists(audio_path):
             os.remove(audio_path)
+    except:
+        pass
