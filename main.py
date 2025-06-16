@@ -18,8 +18,9 @@ app.add_middleware(
 )
 
 # Carga del modelo
-with open("modelo_latido_rf_final.pkl", "rb") as f:
-    modelo = pickle.load(f)
+import joblib
+modelo = joblib.load("modelo_latido_rf_final.pkl")
+
 
 @app.get("/")
 def root():
