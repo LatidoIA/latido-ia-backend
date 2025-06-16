@@ -1,79 +1,56 @@
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, UploadFile, Form
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 import librosa
 import numpy as np
-import torch
-import cv2
-from pydub import AudioSegment
-import io
+import pickle
+import tempfile
+import os
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Puedes restringir a tu dominio más adelante
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Carga del modelo entrenado
+with open("modelo_latido_rf_final.pkl", "rb") as f:
+    modelo = pickle.load(f)
+
 @app.get("/")
 def root():
-    return {"message": "Backend funcionando correctamente"}
+    return {"mensaje": "API Latido IA activa"}
 
-class SimpleCNN(torch.nn.Module):
-    def __init__(self):
-        super(SimpleCNN, self).__init__()
-        self.conv1 = torch.nn.Conv2d(1, 16, 3, padding=1)
-        self.bn1 = torch.nn.BatchNorm2d(16)
-        self.pool = torch.nn.MaxPool2d(2, 2)
-        self.conv2 = torch.nn.Conv2d(16, 32, 3, padding=1)
-        self.bn2 = torch.nn.BatchNorm2d(32)
-        self.dropout = torch.nn.Dropout(0.25)
-
-        dummy = torch.zeros(1, 1, 64, 64)
-        dummy = self.pool(torch.relu(self.bn1(self.conv1(dummy))))
-        dummy = self.pool(torch.relu(self.bn2(self.conv2(dummy))))
-        self.flattened_size = dummy.numel()
-
-        self.fc1 = torch.nn.Linear(self.flattened_size, 64)
-        self.fc2 = torch.nn.Linear(64, 2)
-
-    def forward(self, x):
-        x = self.pool(torch.relu(self.bn1(self.conv1(x))))
-        x = self.pool(torch.relu(self.bn2(self.conv2(x))))
-        x = x.view(-1, self.flattened_size)
-        x = torch.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = self.fc2(x)
-        return x
-
-model = SimpleCNN()
-model.load_state_dict(torch.load('simple_cnn_heartsound.pth', map_location='cpu'))
-model.eval()
-
-def preprocess_audio(file_bytes):
-    # Convertir cualquier formato a WAV usando pydub
-    audio = AudioSegment.from_file(io.BytesIO(file_bytes))  # autodetecta formato
-    wav_io = io.BytesIO()
-    audio.export(wav_io, format="wav")
-    wav_io.seek(0)
-
-    # Procesar el audio WAV convertido con librosa
-    y, sr = librosa.load(wav_io, sr=16000, mono=True)
-    S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=64, fmax=8000)
-    S_db = librosa.power_to_db(S, ref=np.max)
-    S_db_norm = (S_db - S_db.min()) / (S_db.max() - S_db.min())
-    S_db_norm_resized = cv2.resize(S_db_norm, (64, 64))
-    tensor = torch.tensor(S_db_norm_resized).unsqueeze(0).unsqueeze(0).float()
-    return tensor
-
-@app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+@app.post("/analisis")
+async def analizar_audio(audio: UploadFile = File(...), glucosa: float = Form(...)):
     try:
-        contents = await file.read()
-        audio_tensor = preprocess_audio(contents)
-        with torch.no_grad():
-            output = model(audio_tensor)
-            probs = torch.softmax(output, dim=1)
-            prob, pred = torch.max(probs, 1)
-        labels = ['Normal', 'Anormal']
-        return JSONResponse(content={
-            "prediction": labels[pred.item()],
-            "probability": float(prob.item())
-        })
+        # Guardar archivo temporalmente
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            tmp.write(await audio.read())
+            audio_path = tmp.name
+
+        # Extraer características del audio
+        y, sr = librosa.load(audio_path, sr=None)
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+        mfcc_mean = np.mean(mfcc, axis=1)
+
+        # Combinar con glucosa
+        entrada = np.append(mfcc_mean, glucosa).reshape(1, -1)
+
+        # Predecir
+        pred = modelo.predict(entrada)[0]
+
+        return {
+            "resultado": int(pred),
+            "mensaje": "Todo bien" if pred == 2 else "Riesgo detectado",
+            "accion": "Sigue con tu rutina" if pred == 2 else "Recomendamos visitar un médico"
+        }
+
     except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=400)
-print("Redeploy for stability")
+        return {"error": str(e)}
+    finally:
+        os.remove(audio_path)
