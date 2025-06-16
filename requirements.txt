@@ -1,6 +1,0 @@
-fastapi
-uvicorn
-librosa
-numpy
-scikit-learn
-python-multipart
