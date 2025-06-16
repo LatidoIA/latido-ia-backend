@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+torch
+librosa
+numpy
+opencv-python-headless
+python-multipart
+pydub
+scikit-learn==1.6.1
