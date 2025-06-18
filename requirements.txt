@@ -1,10 +1,2 @@
 fastapi
 uvicorn
-numpy
-librosa
-soundfile
-scikit-learn
-xgboost
-imbalanced-learn
-python-multipart
-joblib
