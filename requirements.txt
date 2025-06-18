@@ -5,3 +5,4 @@ numpy
 librosa
 scikit-learn
 python-multipart
+xgboost
