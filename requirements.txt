@@ -4,3 +4,4 @@ joblib
 numpy
 librosa
 scikit-learn
+python-multipart
