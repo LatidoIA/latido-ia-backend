@@ -1,9 +1,10 @@
 fastapi
 uvicorn
-torch
-librosa
 numpy
-opencv-python-headless
+librosa
+soundfile
+scikit-learn
+xgboost
+imbalanced-learn
 python-multipart
-pydub
-scikit-learn==1.6.1
+joblib
