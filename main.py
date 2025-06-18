@@ -1,8 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-import numpy as np
-import librosa
 import joblib
 import os
 
@@ -17,9 +15,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def load_model():
-    # Verifica qué archivos hay en la raíz
     print("FILES AT STARTUP:", os.listdir("."))
-    # Carga tu modelo XGBoost
     global modelo
     modelo = joblib.load("modelo_xgb_mfcc.pkl")
     print("✅ Modelo cargado en startup")
@@ -30,13 +26,16 @@ def root():
 
 @app.post("/analisis")
 async def analizar_audio(audio: UploadFile = File(...), glucosa: float = Form(...)):
-    try:
-        # Guardar temporal
-        data = await audio.read()
-        with open("temp.wav", "wb") as f:
-            f.write(data)
+    # Importaciones pesadas **solo aquí**
+    import numpy as np
+    import librosa
 
-        # Cargar y extraer features
+    # Guardar temporal
+    data = await audio.read()
+    with open("temp.wav", "wb") as f:
+        f.write(data)
+
+    try:
         y, sr = librosa.load("temp.wav", sr=16000, duration=5.0)
         mfcc     = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13).mean(axis=1)
         chroma   = librosa.feature.chroma_stft(y=y, sr=sr).mean(axis=1)
@@ -50,7 +49,6 @@ async def analizar_audio(audio: UploadFile = File(...), glucosa: float = Form(..
             "mensaje": "Todo bien" if pred == 2 else "Riesgo detectado",
             "accion": "Sigue con tu rutina" if pred == 2 else "Recomendamos visitar un médico"
         }
-
     except Exception as e:
         return {"error": str(e)}
     finally:
