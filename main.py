@@ -41,10 +41,12 @@ async def analizar_audio(audio: UploadFile = File(...), glucosa: float = Form(..
         feat = np.hstack([mfcc, chroma, contrast]).reshape(1, -1)
         pred = app.state.modelo.predict(feat)[0]
 
+        # Mapea tu predicción a mensaje/acción
         resultado = int(pred)
         mensaje   = "Todo bien" if pred == 2 else "Riesgo detectado"
         accion    = "Sigue con tu rutina" if pred == 2 else "Recomendamos visitar un médico"
 
+        # **Incluye siempre el campo `error` en la respuesta de éxito**
         return {
             "resultado": resultado,
             "mensaje": mensaje,
@@ -54,7 +56,9 @@ async def analizar_audio(audio: UploadFile = File(...), glucosa: float = Form(..
     except Exception as e:
         return {"error": str(e)}
     finally:
-        if os.path.exists(tmp): os.remove(tmp)
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
 
 
 if __name__ == "__main__":
