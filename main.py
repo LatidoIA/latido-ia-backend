@@ -31,31 +31,39 @@ async def root():
 async def analizar_audio(audio: UploadFile = File(...), glucosa: float = Form(...)):
     import numpy as np, librosa
 
-    # Guardar audio en disco
     data = await audio.read()
     tmp = "temp.wav"
     with open(tmp, "wb") as f:
         f.write(data)
 
     try:
-        # Cargar y extraer características
-        y, sr = librosa.load(tmp, sr=16000, duration=5.0)
+        # 1) Carga y preprocess
+        y, sr = librosa.load(tmp, sr=16000, duration=10.0)
+        # Filtro banda 20–150 Hz
+        from scipy.signal import butter, filtfilt
+        nyq = 0.5 * sr
+        b, a = butter(2, [20/nyq, 150/nyq], btype='band')
+        y = filtfilt(b, a, y)
+
+        # 2) Features y predicción
         mfcc     = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13).mean(axis=1)
         chroma   = librosa.feature.chroma_stft(y=y, sr=sr).mean(axis=1)
         contrast = librosa.feature.spectral_contrast(y=y, sr=sr).mean(axis=1)
         feat = np.hstack([mfcc, chroma, contrast]).reshape(1, -1)
-
-        # Inferencia con tu modelo
         pred = app.state.modelo.predict(feat)[0]
+
         resultado = int(pred)
         mensaje   = "Todo bien" if pred == 2 else "Riesgo detectado"
         accion    = "Sigue con tu rutina" if pred == 2 else "Recomendamos visitar un médico"
 
-        # Cálculo de BPM a partir del audio
-        tempos = librosa.beat.tempo(y=y, sr=sr)
-        bpm = float(np.round(tempos[0], 1))
+        # 3) BPM: si falla, lo dejamos como None
+        try:
+            tempos = librosa.beat.tempo(y=y, sr=sr)
+            bpm = float(np.round(tempos[0], 1))
+        except Exception:
+            bpm = None
 
-        # Respuesta con todos los campos, incluyendo error vacío
+        # 4) Armado de la respuesta
         return {
             "resultado": resultado,
             "mensaje": mensaje,
@@ -65,13 +73,13 @@ async def analizar_audio(audio: UploadFile = File(...), glucosa: float = Form(..
         }
 
     except Exception as e:
-        # En caso de error, devolvemos solo el campo error
+        # Si hay un fallo antes de la respuesta, devolvemos sólo error
         return {"error": str(e)}
 
     finally:
-        # Limpiar el archivo temporal
         if os.path.exists(tmp):
             os.remove(tmp)
+
 
 
 if __name__ == "__main__":
