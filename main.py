@@ -40,15 +40,22 @@ async def analizar_audio(audio: UploadFile = File(...), glucosa: float = Form(..
         contrast = librosa.feature.spectral_contrast(y=y, sr=sr).mean(axis=1)
         feat = np.hstack([mfcc, chroma, contrast]).reshape(1, -1)
         pred = app.state.modelo.predict(feat)[0]
+
+        resultado = int(pred)
+        mensaje   = "Todo bien" if pred == 2 else "Riesgo detectado"
+        accion    = "Sigue con tu rutina" if pred == 2 else "Recomendamos visitar un médico"
+
         return {
-            "resultado": int(pred),
-            "mensaje": "Todo bien" if pred == 2 else "Riesgo detectado",
-            "accion": "Sigue con tu rutina" if pred == 2 else "Recomendamos visitar un médico"
+            "resultado": resultado,
+            "mensaje": mensaje,
+            "accion": accion,
+            "error": ""
         }
     except Exception as e:
         return {"error": str(e)}
     finally:
         if os.path.exists(tmp): os.remove(tmp)
+
 
 if __name__ == "__main__":
     import uvicorn
