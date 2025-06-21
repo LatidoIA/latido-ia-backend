@@ -3,6 +3,7 @@ uvicorn
 joblib
 numpy
 librosa
+pydub
 scipy
 scikit-learn
 python-multipart
