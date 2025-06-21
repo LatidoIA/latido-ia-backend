@@ -36,6 +36,7 @@ async def analizar_audio(
     import numpy as np
     import librosa
     from scipy.signal import butter, filtfilt
+    import traceback
 
     # Guardar audio en disco
     data = await audio.read()
@@ -44,27 +45,24 @@ async def analizar_audio(
         f.write(data)
 
     try:
-        # 1) Carga y preprocesado (10s para más datos)
+        # 1) Cargar hasta 10 s y filtrar
         y, sr = librosa.load(tmp, sr=16000, duration=10.0)
-
-        # 2) Filtro pasa-banda 20–150 Hz
         nyq = 0.5 * sr
         b, a = butter(2, [20/nyq, 150/nyq], btype="band")
         y = filtfilt(b, a, y)
 
-        # 3) Extracción de features
+        # 2) Extraer features y predecir
         mfcc     = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13).mean(axis=1)
         chroma   = librosa.feature.chroma_stft(y=y, sr=sr).mean(axis=1)
         contrast = librosa.feature.spectral_contrast(y=y, sr=sr).mean(axis=1)
         feat = np.hstack([mfcc, chroma, contrast]).reshape(1, -1)
-
-        # 4) Inferencia
         pred = app.state.modelo.predict(feat)[0]
+
         resultado = int(pred)
         mensaje   = "Todo bien" if pred == 2 else "Riesgo detectado"
         accion    = "Sigue con tu rutina" if pred == 2 else "Recomendamos visitar un médico"
 
-        # 5) Cálculo de BPM (si falla, queda None)
+        # 3) Calcular BPM (si falla, queda None)
         try:
             tempos = librosa.beat.tempo(y=y, sr=sr)
             bpm = float(np.round(tempos[0], 1))
@@ -72,7 +70,7 @@ async def analizar_audio(
             print("⚠️ Error calculando BPM:", repr(e))
             bpm = None
 
-        # 6) Respuesta completa con error vacío
+        # 4) Devolver siempre todos los campos
         return {
             "resultado": resultado,
             "mensaje": mensaje,
@@ -81,22 +79,24 @@ async def analizar_audio(
             "error": ""
         }
 
-  except Exception as e:
-    import traceback
-    tb = traceback.format_exc()
-    print("❌ Error interno en /analisis:\n", tb)
-    # TEMPORAL: devolvemos TODO el traceback en el campo error
-    return {"error": tb}
-
+    except Exception as e:
+        tb = traceback.format_exc()
+        print("❌ Error interno en /analisis:\n", tb)
+        # TEMPORAL: devolvemos el traceback completo en "error"
+        return {"error": tb}
 
     finally:
-        # Limpiar archivo temporal
         if os.path.exists(tmp):
             os.remove(tmp)
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8080))
+    )
+
 
 
