@@ -81,11 +81,13 @@ async def analizar_audio(
             "error": ""
         }
 
-    except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        print("❌ Error interno en /analisis:\n", tb)
-        return {"error": str(e) or "Excepción sin mensaje"}
+  except Exception as e:
+    import traceback
+    tb = traceback.format_exc()
+    print("❌ Error interno en /analisis:\n", tb)
+    # TEMPORAL: devolvemos TODO el traceback en el campo error
+    return {"error": tb}
+
 
     finally:
         # Limpiar archivo temporal
