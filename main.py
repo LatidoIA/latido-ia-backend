@@ -30,37 +30,51 @@ async def root():
 @app.post("/analisis")
 async def analizar_audio(audio: UploadFile = File(...), glucosa: float = Form(...)):
     import numpy as np, librosa
+
+    # Guardar audio en disco
     data = await audio.read()
     tmp = "temp.wav"
-    with open(tmp, "wb") as f: f.write(data)
+    with open(tmp, "wb") as f:
+        f.write(data)
+
     try:
+        # Cargar y extraer características
         y, sr = librosa.load(tmp, sr=16000, duration=5.0)
         mfcc     = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13).mean(axis=1)
         chroma   = librosa.feature.chroma_stft(y=y, sr=sr).mean(axis=1)
         contrast = librosa.feature.spectral_contrast(y=y, sr=sr).mean(axis=1)
         feat = np.hstack([mfcc, chroma, contrast]).reshape(1, -1)
-        pred = app.state.modelo.predict(feat)[0]
 
-        # Mapea tu predicción a mensaje/acción
+        # Inferencia con tu modelo
+        pred = app.state.modelo.predict(feat)[0]
         resultado = int(pred)
         mensaje   = "Todo bien" if pred == 2 else "Riesgo detectado"
         accion    = "Sigue con tu rutina" if pred == 2 else "Recomendamos visitar un médico"
 
-        # **Incluye siempre el campo `error` en la respuesta de éxito**
+        # Cálculo de BPM a partir del audio
+        tempos = librosa.beat.tempo(y=y, sr=sr)
+        bpm = float(np.round(tempos[0], 1))
+
+        # Respuesta con todos los campos, incluyendo error vacío
         return {
             "resultado": resultado,
             "mensaje": mensaje,
             "accion": accion,
+            "bpm": bpm,
             "error": ""
         }
+
     except Exception as e:
+        # En caso de error, devolvemos solo el campo error
         return {"error": str(e)}
+
     finally:
+        # Limpiar el archivo temporal
         if os.path.exists(tmp):
             os.remove(tmp)
-
 
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+
