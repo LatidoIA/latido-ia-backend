@@ -72,9 +72,10 @@ async def analizar_audio(audio: UploadFile = File(...), glucosa: float = Form(..
             "error": ""
         }
 
-    except Exception as e:
-        # Si hay un fallo antes de la respuesta, devolvemos sólo error
-        return {"error": str(e)}
+       except Exception as e:
+        print("❌ Error interno en /analisis:", repr(e))
+        return {"error": str(e) or "Excepción sin mensaje"}
+
 
     finally:
         if os.path.exists(tmp):
