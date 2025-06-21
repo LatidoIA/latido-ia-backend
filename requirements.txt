@@ -3,6 +3,7 @@ uvicorn
 joblib
 numpy
 librosa
+scipy
 scikit-learn
 python-multipart
 xgboost
