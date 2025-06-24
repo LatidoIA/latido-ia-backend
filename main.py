@@ -2,6 +2,11 @@ from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import joblib, os, io, base64, traceback, random
+import numpy as np
+import librosa
+from scipy.signal import butter, filtfilt, find_peaks
+from pydub import AudioSegment
+import matplotlib.pyplot as plt
 
 # Etiquetas de tu modelo
 LABELS = {
@@ -37,14 +42,10 @@ async def load_model():
 @app.post("/analisis")
 async def analizar_audio(
     audio: UploadFile = File(...),
-    glucosa: float = Form(...)
+    glucosa: float = Form(...),
+    unidad: str = Form("mg/dl")
 ):
-    import numpy as np, librosa
-    from scipy.signal import butter, filtfilt
-    from pydub import AudioSegment
-    import matplotlib.pyplot as plt
-
-    # 1) Guardar raw upload (.3gp u otro) en disco
+    # 1) Guardar raw upload
     raw_ext = os.path.splitext(audio.filename)[1] or ".3gp"
     raw_tmp = f"temp_raw{raw_ext}"
     data = await audio.read()
@@ -59,12 +60,14 @@ async def analizar_audio(
         sound.export(wav_tmp, format="wav")
     except Exception as e:
         tb = traceback.format_exc()
+        os.remove(raw_tmp)
         return {"error": f"Conversión a WAV fallida: {e}", "waveform_png": None}
     finally:
-        os.remove(raw_tmp)
+        if os.path.exists(raw_tmp):
+            os.remove(raw_tmp)
 
     try:
-        # 3) Cargar WAV válido
+        # 3) Cargar WAV
         y, sr = librosa.load(wav_tmp, sr=16000, duration=10.0)
 
         # 4) Filtrar señal 20–150 Hz
@@ -81,13 +84,24 @@ async def analizar_audio(
         pred = int(app.state.modelo.predict(feat)[0])
         anomaly_type = LABELS.get(pred, "Desconocido")
 
-        # 6) Calcular BPM
+        # 6) Cálculo de BPM por detección de picos
         try:
-            tempos, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
-            bpm = float(np.round(tempos, 1))
+            env = np.abs(y)
+            window = int(sr * 0.05)  # 50 ms
+            env_smooth = np.convolve(env, np.ones(window)/window, mode='same')
+
+            peaks, _ = find_peaks(
+                env_smooth,
+                distance=sr*0.4,
+                height=np.mean(env_smooth)*1.2
+            )
+            peak_times = peaks / sr
+            duration_sec = len(y) / sr
+            bpm = float(np.round(len(peaks) / duration_sec * 60, 1))
+            beat_times = peak_times.tolist()
         except Exception:
             bpm = None
-            beat_frames = []
+            beat_times = []
 
         # 7) Mensajes según clase
         if pred == 0:
@@ -99,13 +113,12 @@ async def analizar_audio(
             accion = "Visita un médico para confirmar"
             encouragement = ""
 
-        # 8) Generar gráfico de forma de onda + beats
+        # 8) Generar gráfico de forma de onda + picos
         times = np.arange(len(y)) / sr
-        beat_times = librosa.frames_to_time(beat_frames, sr=sr)
-
         plt.figure(figsize=(8, 3))
         plt.plot(times, y, linewidth=0.5)
-        plt.vlines(beat_times, y.min(), y.max(), color='r', linewidth=1)
+        if beat_times:
+            plt.vlines(beat_times, y.min(), y.max(), color='r', linewidth=1)
         plt.xlabel("Tiempo (s)")
         plt.ylabel("Amplitud")
         plt.tight_layout()
@@ -116,7 +129,7 @@ async def analizar_audio(
         buf.seek(0)
         waveform_png = base64.b64encode(buf.read()).decode('ascii')
 
-        # 9) Responder JSON con imagen embedded
+        # 9) Respuesta
         return JSONResponse({
             "resultado": pred,
             "anomaly_type": anomaly_type,
