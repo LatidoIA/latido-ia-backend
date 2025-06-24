@@ -1,7 +1,23 @@
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-import joblib
-import os
+from fastapi.responses import JSONResponse
+import joblib, os, io, base64, traceback, random
+
+# Etiquetas de tu modelo
+LABELS = {
+    0: "Normal",
+    1: "Bradicardia",
+    2: "Taquicardia",
+}
+
+# Mensajes de ánimo para ritmo normal
+NORMAL_MESSAGES = [
+    "Tu corazón es fuerte y saludable ❤️",
+    "No se detectaron anomalías, ¡bien hecho!",
+    "Ritmo cardíaco dentro de lo esperado. Sigue así 💪",
+    "Latidos estables: tu corazón trabaja perfectamente",
+    "¡Genial! Tu corazón late con normalidad"
+]
 
 app = FastAPI()
 app.add_middleware(
@@ -14,32 +30,21 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def load_model():
-    modelo_path = "modelo_xgb_mfcc.pkl"
-    print("FILES AT STARTUP:", os.listdir("."))
-    modelo = joblib.load(modelo_path)
+    modelo = joblib.load("modelo_xgb_mfcc.pkl")
     app.state.modelo = modelo
     print("✅ Modelo cargado en startup")
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-@app.get("/")
-async def root():
-    return {"mensaje": "API Latido IA activa con XGBoost"}
 
 @app.post("/analisis")
 async def analizar_audio(
     audio: UploadFile = File(...),
     glucosa: float = Form(...)
 ):
-    import numpy as np
-    import librosa
+    import numpy as np, librosa
     from scipy.signal import butter, filtfilt
     from pydub import AudioSegment
-    import traceback
+    import matplotlib.pyplot as plt
 
-    # 1) Guardar raw (3gp/…) en disco
+    # 1) Guardar raw upload (.3gp u otro) en disco
     raw_ext = os.path.splitext(audio.filename)[1] or ".3gp"
     raw_tmp = f"temp_raw{raw_ext}"
     data = await audio.read()
@@ -54,17 +59,15 @@ async def analizar_audio(
         sound.export(wav_tmp, format="wav")
     except Exception as e:
         tb = traceback.format_exc()
-        print("❌ Error convirtiendo a WAV:\n", tb)
-        return {"error": f"Conversión a WAV fallida: {e}"}
+        return {"error": f"Conversión a WAV fallida: {e}", "waveform_png": None}
     finally:
-        if os.path.exists(raw_tmp):
-            os.remove(raw_tmp)
+        os.remove(raw_tmp)
 
     try:
         # 3) Cargar WAV válido
         y, sr = librosa.load(wav_tmp, sr=16000, duration=10.0)
 
-        # 4) Filtro pasa-banda 20–150 Hz
+        # 4) Filtrar señal 20–150 Hz
         nyq = 0.5 * sr
         b, a = butter(2, [20/nyq, 150/nyq], btype="band")
         y = filtfilt(b, a, y)
@@ -74,37 +77,67 @@ async def analizar_audio(
         chroma   = librosa.feature.chroma_stft(y=y, sr=sr).mean(axis=1)
         contrast = librosa.feature.spectral_contrast(y=y, sr=sr).mean(axis=1)
         feat = np.hstack([mfcc, chroma, contrast]).reshape(1, -1)
-        pred = app.state.modelo.predict(feat)[0]
 
-        resultado = int(pred)
-        mensaje   = "Todo bien" if pred == 2 else "Riesgo detectado"
-        accion    = "Sigue con tu rutina" if pred == 2 else "Recomendamos visitar un médico"
+        pred = int(app.state.modelo.predict(feat)[0])
+        anomaly_type = LABELS.get(pred, "Desconocido")
 
-        # 6) BPM
+        # 6) Calcular BPM
         try:
-            tempos = librosa.beat.tempo(y=y, sr=sr)
-            bpm = float(np.round(tempos[0], 1))
+            tempos, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+            bpm = float(np.round(tempos, 1))
         except Exception:
             bpm = None
+            beat_frames = []
 
-        return {
-            "resultado": resultado,
+        # 7) Mensajes según clase
+        if pred == 0:
+            mensaje = "Sin riesgo detectado"
+            accion = "Continúa tu rutina"
+            encouragement = random.choice(NORMAL_MESSAGES)
+        else:
+            mensaje = "Riesgo detectado"
+            accion = "Visita un médico para confirmar"
+            encouragement = ""
+
+        # 8) Generar gráfico de forma de onda + beats
+        times = np.arange(len(y)) / sr
+        beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+
+        plt.figure(figsize=(8, 3))
+        plt.plot(times, y, linewidth=0.5)
+        plt.vlines(beat_times, y.min(), y.max(), color='r', linewidth=1)
+        plt.xlabel("Tiempo (s)")
+        plt.ylabel("Amplitud")
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        plt.close()
+        buf.seek(0)
+        waveform_png = base64.b64encode(buf.read()).decode('ascii')
+
+        # 9) Responder JSON con imagen embedded
+        return JSONResponse({
+            "resultado": pred,
+            "anomaly_type": anomaly_type,
             "mensaje": mensaje,
             "accion": accion,
             "bpm": bpm,
+            "encouragement": encouragement,
+            "waveform_png": waveform_png,
             "error": ""
-        }
+        })
 
     except Exception as e:
         tb = traceback.format_exc()
-        print("❌ Error interno en /analisis:\n", tb)
-        return {"error": tb}
+        return {"error": tb, "waveform_png": None}
 
     finally:
         if os.path.exists(wav_tmp):
             os.remove(wav_tmp)
 
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    uvicorn.run(app, host="0.0.0.0", port=8080)
 
