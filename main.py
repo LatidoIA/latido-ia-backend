@@ -45,14 +45,14 @@ async def analizar_audio(
     glucosa: float = Form(...),
     unidad: str = Form("mg/dl")
 ):
-    # 1) Guardar raw upload
+    # 1) Guardar upload raw
     raw_ext = os.path.splitext(audio.filename)[1] or ".3gp"
     raw_tmp = f"temp_raw{raw_ext}"
     data = await audio.read()
     with open(raw_tmp, "wb") as f:
         f.write(data)
 
-    # 2) Convertir a WAV mono 16 kHz
+    # 2) Convertir a WAV 16kHz mono
     wav_tmp = "temp.wav"
     try:
         sound = AudioSegment.from_file(raw_tmp)
@@ -70,12 +70,12 @@ async def analizar_audio(
         # 3) Cargar WAV
         y, sr = librosa.load(wav_tmp, sr=16000, duration=10.0)
 
-        # 4) Filtrar señal 20–150 Hz
+        # 4) Filtrar 20–150 Hz
         nyq = 0.5 * sr
         b, a = butter(2, [20/nyq, 150/nyq], btype="band")
         y = filtfilt(b, a, y)
 
-        # 5) Features y predicción
+        # 5) Extraer features y predecir
         mfcc     = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13).mean(axis=1)
         chroma   = librosa.feature.chroma_stft(y=y, sr=sr).mean(axis=1)
         contrast = librosa.feature.spectral_contrast(y=y, sr=sr).mean(axis=1)
@@ -87,23 +87,33 @@ async def analizar_audio(
         # 6) Cálculo de BPM por detección de picos
         try:
             env = np.abs(y)
-            window = int(sr * 0.05)  # 50 ms
+            window = int(sr * 0.05)
             env_smooth = np.convolve(env, np.ones(window)/window, mode='same')
-
-            peaks, _ = find_peaks(
-                env_smooth,
-                distance=sr*0.4,
-                height=np.mean(env_smooth)*1.2
-            )
-            peak_times = peaks / sr
+            peaks, _ = find_peaks(env_smooth,
+                                  distance=sr*0.4,
+                                  height=np.mean(env_smooth)*1.2)
             duration_sec = len(y) / sr
-            bpm = float(np.round(len(peaks) / duration_sec * 60, 1))
-            beat_times = peak_times.tolist()
+            bpm = float(np.round(len(peaks)/duration_sec*60, 1))
+            beat_times = (peaks/sr).tolist()
         except Exception:
             bpm = None
             beat_times = []
 
-        # 7) Mensajes según clase
+        # 7) Aplicar reglas de consistencia
+        inconsistente = False
+        if bpm is not None:
+            # si modelo dice bradicardia pero BPM ≥60 → forzar Normal
+            if pred == 1 and 60 <= bpm <= 100:
+                pred = 0
+                anomaly_type = LABELS[0]
+                inconsistente = True
+            # si modelo dice taquicardia pero BPM ≤100 → forzar Normal
+            elif pred == 2 and bpm <= 100:
+                pred = 0
+                anomaly_type = LABELS[0]
+                inconsistente = True
+
+        # 8) Mensajes según clase final
         if pred == 0:
             mensaje = "Sin riesgo detectado"
             accion = "Continúa tu rutina"
@@ -113,7 +123,7 @@ async def analizar_audio(
             accion = "Visita un médico para confirmar"
             encouragement = ""
 
-        # 8) Generar gráfico de forma de onda + picos
+        # 9) Generar gráfico de forma de onda + picos
         times = np.arange(len(y)) / sr
         plt.figure(figsize=(8, 3))
         plt.plot(times, y, linewidth=0.5)
@@ -129,13 +139,14 @@ async def analizar_audio(
         buf.seek(0)
         waveform_png = base64.b64encode(buf.read()).decode('ascii')
 
-        # 9) Respuesta
+        # 10) Responder
         return JSONResponse({
             "resultado": pred,
             "anomaly_type": anomaly_type,
             "mensaje": mensaje,
             "accion": accion,
             "bpm": bpm,
+            "inconsistente": inconsistente,
             "encouragement": encouragement,
             "waveform_png": waveform_png,
             "error": ""
