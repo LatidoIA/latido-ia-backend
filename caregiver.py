@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from models import Patient, Caregiver, patient_caregiver
-from main import get_db
+from db import get_db  
 
 router = APIRouter()
 
