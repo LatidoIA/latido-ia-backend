@@ -5,7 +5,7 @@ import base64
 import traceback
 import random
 
-from fastapi import FastAPI, Depends, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, Depends, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -17,27 +17,13 @@ from pydub import AudioSegment
 import matplotlib.pyplot as plt
 
 # ---- BASE DE DATOS ----
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
+from db import engine, Base, get_db
 
-# importa tus modelos y el router
+# importa tus modelos para que Base.metadata los conozca
 import models
+
+# importa tu router de cuidadores
 from caregiver import router as caregiver_router
-
-SQLALCHEMY_DATABASE_URL = "sqlite:///./latido.db"
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 # ---- INICIALIZA FastAPI ----
 app = FastAPI(
@@ -146,12 +132,12 @@ async def analizar_audio(
 
         # 8) Mensajes
         if pred == 0:
-            mensaje     = "Sin riesgo detectado"
-            accion      = "Continúa tu rutina"
+            mensaje      = "Sin riesgo detectado"
+            accion       = "Continúa tu rutina"
             encouragement = random.choice(NORMAL_MESSAGES)
         else:
-            mensaje     = "Riesgo detectado"
-            accion      = "Visita un médico para confirmar"
+            mensaje      = "Riesgo detectado"
+            accion       = "Visita un médico para confirmar"
             encouragement = ""
 
         # 9) Generar gráfico de forma de onda + picos
