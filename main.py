@@ -8,6 +8,9 @@ from scipy.signal import butter, filtfilt, find_peaks
 from pydub import AudioSegment
 import matplotlib.pyplot as plt
 
+# Importamos el router de caregiver
+from caregiver import router as caregiver_router
+
 # Etiquetas de tu modelo
 LABELS = {
     0: "Normal",
@@ -25,6 +28,8 @@ NORMAL_MESSAGES = [
 ]
 
 app = FastAPI()
+
+# Middleware de CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,11 +38,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Incluimos el router de cuidador en la ruta /caregiver
+app.include_router(caregiver_router, prefix="/caregiver", tags=["caregiver"])
+
+
 @app.on_event("startup")
 async def load_model():
     modelo = joblib.load("modelo_xgb_mfcc.pkl")
     app.state.modelo = modelo
     print("✅ Modelo cargado en startup")
+
 
 @app.post("/analisis")
 async def analizar_audio(
@@ -102,12 +112,10 @@ async def analizar_audio(
         # 7) Aplicar reglas de consistencia
         inconsistente = False
         if bpm is not None:
-            # si modelo dice bradicardia pero BPM ≥60 → forzar Normal
             if pred == 1 and 60 <= bpm <= 100:
                 pred = 0
                 anomaly_type = LABELS[0]
                 inconsistente = True
-            # si modelo dice taquicardia pero BPM ≤100 → forzar Normal
             elif pred == 2 and bpm <= 100:
                 pred = 0
                 anomaly_type = LABELS[0]
