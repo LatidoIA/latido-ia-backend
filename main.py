@@ -1,4 +1,6 @@
-from fastapi import FastAPI, File, UploadFile, Form
+# main.py
+
+from fastapi import FastAPI, File, UploadFile, Form, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import joblib, os, io, base64, traceback, random
@@ -8,17 +10,35 @@ from scipy.signal import butter, filtfilt, find_peaks
 from pydub import AudioSegment
 import matplotlib.pyplot as plt
 
-# Importamos el router de caregiver
-from caregiver import router as caregiver_router
+# --- SQLAlchemy setup ---
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from models import Base  # Asegúrate de tener models.py en la raíz
 
-# Etiquetas de tu modelo
+SQLALCHEMY_DATABASE_URL = "sqlite:///./sql_app.db"
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Crea las tablas en SQLite al arrancar
+Base.metadata.create_all(bind=engine)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# --------------------------------
+
+# Carga de etiquetas y mensajes para tu modelo
 LABELS = {
     0: "Normal",
     1: "Bradicardia",
     2: "Taquicardia",
 }
-
-# Mensajes de ánimo para ritmo normal
 NORMAL_MESSAGES = [
     "Tu corazón es fuerte y saludable ❤️",
     "No se detectaron anomalías, ¡bien hecho!",
@@ -28,8 +48,6 @@ NORMAL_MESSAGES = [
 ]
 
 app = FastAPI()
-
-# Middleware de CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -38,16 +56,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Incluimos el router de cuidador en la ruta /caregiver
+# Incluimos el router de 'caregiver'
+from caregiver import router as caregiver_router
 app.include_router(caregiver_router, prefix="/caregiver", tags=["caregiver"])
 
-
+# Carga del modelo al startup
 @app.on_event("startup")
 async def load_model():
     modelo = joblib.load("modelo_xgb_mfcc.pkl")
     app.state.modelo = modelo
     print("✅ Modelo cargado en startup")
-
 
 @app.post("/analisis")
 async def analizar_audio(
@@ -55,7 +73,7 @@ async def analizar_audio(
     glucosa: float = Form(...),
     unidad: str = Form("mg/dl")
 ):
-    # 1) Guardar upload raw
+    # 1) Guardar el upload
     raw_ext = os.path.splitext(audio.filename)[1] or ".3gp"
     raw_tmp = f"temp_raw{raw_ext}"
     data = await audio.read()
@@ -90,7 +108,6 @@ async def analizar_audio(
         chroma   = librosa.feature.chroma_stft(y=y, sr=sr).mean(axis=1)
         contrast = librosa.feature.spectral_contrast(y=y, sr=sr).mean(axis=1)
         feat = np.hstack([mfcc, chroma, contrast]).reshape(1, -1)
-
         pred = int(app.state.modelo.predict(feat)[0])
         anomaly_type = LABELS.get(pred, "Desconocido")
 
@@ -109,26 +126,22 @@ async def analizar_audio(
             bpm = None
             beat_times = []
 
-        # 7) Aplicar reglas de consistencia
+        # 7) Reglas de consistencia
         inconsistente = False
         if bpm is not None:
             if pred == 1 and 60 <= bpm <= 100:
-                pred = 0
-                anomaly_type = LABELS[0]
-                inconsistente = True
+                pred = 0; anomaly_type = LABELS[0]; inconsistente = True
             elif pred == 2 and bpm <= 100:
-                pred = 0
-                anomaly_type = LABELS[0]
-                inconsistente = True
+                pred = 0; anomaly_type = LABELS[0]; inconsistente = True
 
-        # 8) Mensajes según clase final
+        # 8) Mensajes según clase
         if pred == 0:
-            mensaje = "Sin riesgo detectado"
-            accion = "Continúa tu rutina"
+            mensaje      = "Sin riesgo detectado"
+            accion       = "Continúa tu rutina"
             encouragement = random.choice(NORMAL_MESSAGES)
         else:
-            mensaje = "Riesgo detectado"
-            accion = "Visita un médico para confirmar"
+            mensaje      = "Riesgo detectado"
+            accion       = "Visita un médico para confirmar"
             encouragement = ""
 
         # 9) Generar gráfico de forma de onda + picos
@@ -160,10 +173,9 @@ async def analizar_audio(
             "error": ""
         })
 
-    except Exception as e:
+    except Exception:
         tb = traceback.format_exc()
         return {"error": tb, "waveform_png": None}
-
     finally:
         if os.path.exists(wav_tmp):
             os.remove(wav_tmp)
@@ -172,4 +184,3 @@ async def analizar_audio(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)
-
