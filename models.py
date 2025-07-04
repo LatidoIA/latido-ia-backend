@@ -1,10 +1,8 @@
 # models.py
 from sqlalchemy import Column, Integer, String, Table, ForeignKey, DateTime, func
-from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy.orm import relationship
+from db import Base
 
-Base = declarative_base()
-
-# Tabla asociativa paciente–cuidador
 patient_caregiver = Table(
     "patient_caregiver",
     Base.metadata,
@@ -19,7 +17,6 @@ class Patient(Base):
     id    = Column(Integer, primary_key=True, index=True)
     name  = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
-
     caregivers = relationship(
         "Caregiver",
         secondary=patient_caregiver,
@@ -31,9 +28,12 @@ class Caregiver(Base):
     id    = Column(Integer, primary_key=True, index=True)
     name  = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
-
     patients = relationship(
         "Patient",
+        secondary=patient_caregiver,
+        back_populates="caregivers"
+    )
+
         secondary=patient_caregiver,
         back_populates="caregivers"
     )
