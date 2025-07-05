@@ -1,3 +1,4 @@
+# models.py
 from sqlalchemy import Column, Integer, String, Table, ForeignKey, DateTime, func
 from sqlalchemy.orm import relationship, declarative_base
 
@@ -10,8 +11,7 @@ patient_caregiver = Table(
     Column("patient_id", ForeignKey("patients.id"), primary_key=True),
     Column("caregiver_id", ForeignKey("caregivers.id"), primary_key=True),
     Column("invited_at", DateTime, server_default=func.now()),
-    Column("accepted_at", DateTime, nullable=True)
-    Column("code", String(6), unique=True, nullable=False)
+    Column("accepted_at", DateTime, nullable=True),  # <-- aquí la coma
 )
 
 class Patient(Base):
@@ -38,9 +38,12 @@ class Caregiver(Base):
         back_populates="caregivers"
     )
 
+# Nuevo modelo Invitation para gestionar códigos de invitación
 class Invitation(Base):
     __tablename__ = "invitations"
-    code       = Column(String(6), primary_key=True, index=True)
+    id         = Column(Integer, primary_key=True, index=True)
+    code       = Column(String(6), unique=True, nullable=False)
     patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
+    patient = relationship("Patient")
