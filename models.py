@@ -11,6 +11,7 @@ patient_caregiver = Table(
     Column("caregiver_id", ForeignKey("caregivers.id"), primary_key=True),
     Column("invited_at", DateTime, server_default=func.now()),
     Column("accepted_at", DateTime, nullable=True)
+    Column("code", String(6), unique=True, nullable=False)
 )
 
 class Patient(Base):
