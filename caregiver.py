@@ -21,45 +21,32 @@ class JoinRequest(BaseModel):
     caregiver_email: EmailStr
     caregiver_name: str
 
-@router.post("/invite", status_code=200)
-def invite_caregiver(req: InviteRequest, db: Session = Depends(get_db)):
-    patient = db.query(Patient).filter_by(email=req.patient_email).first()
-    if not patient:
-        raise HTTPException(404, "Paciente no encontrado")
-
-    caregiver = db.query(Caregiver).filter_by(email=req.caregiver_email).first()
-    if not caregiver:
-        caregiver = Caregiver(name=req.caregiver_name, email=req.caregiver_email)
-        db.add(caregiver)
-        db.commit()
-        db.refresh(caregiver)
-
-    stmt = patient_caregiver.insert().values(
-        patient_id=patient.id,
-        caregiver_id=caregiver.id
-    )
-    db.execute(stmt)
-    db.commit()
-    return {"message": "Invitación enviada", "caregiver_id": caregiver.id}
-
+# caregiver.py (solo la ruta /code modificada)
 @router.post("/code", status_code=200)
 def generate_code(req: CodeRequest, db: Session = Depends(get_db)):
+    # 1) Si no existe el paciente, créalo
     patient = db.query(Patient).filter_by(email=req.patient_email).first()
     if not patient:
-        raise HTTPException(404, "Paciente no encontrado")
+        patient = Patient(name=req.patient_email.split('@')[0], email=req.patient_email)
+        db.add(patient)
+        db.commit()
+        db.refresh(patient)
 
-    # Genera un código único de 6 dígitos
+    # 2) Generar código único de 6 dígitos
     code = None
     while True:
-        cand = f"{random.randint(0, 999999):06d}"
-        if not db.query(Invitation).filter_by(code=cand).first():
-            code = cand
+        candidate = f"{random.randint(0, 999999):06d}"
+        if not db.query(Invitation).filter_by(code=candidate).first():
+            code = candidate
             break
 
+    # 3) Guardar invitación
     inv = Invitation(code=code, patient_id=patient.id)
     db.add(inv)
     db.commit()
+
     return {"code": code}
+
 
 @router.post("/join", status_code=200)
 def join_with_code(req: JoinRequest, db: Session = Depends(get_db)):
