@@ -1,11 +1,12 @@
 # main.py
+
 import os
 import io
 import base64
 import traceback
 import random
 
-from fastapi import FastAPI, Depends, File, UploadFile, Form
+from fastapi import FastAPI, Depends, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -16,16 +17,28 @@ from scipy.signal import butter, filtfilt, find_peaks
 from pydub import AudioSegment
 import matplotlib.pyplot as plt
 
-# ---- BASE DE DATOS ----
-from db import engine, Base, get_db
+# ——— BASE DE DATOS ———
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
-# importa tus modelos para que Base.metadata los conozca
-import models
-
-# importa tu router de cuidadores
+# Importa tu Base y modelos desde models.py
+from models import Base  # este Base es el mismo que usan Patient, Caregiver e Invitation
 from caregiver import router as caregiver_router
 
-# ---- INICIALIZA FastAPI ----
+DATABASE_URL = "sqlite:///./latido.db"
+engine = create_engine(
+    DATABASE_URL, connect_args={"check_same_thread": False}
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# ——— INICIALIZA FastAPI ———
 app = FastAPI(
     title="Latido IA API",
     version="1.0.0",
@@ -40,13 +53,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Crea las tablas definidas en models.py
+# ——— CREA LAS TABLAS DEFINIDAS EN models.py ———
 Base.metadata.create_all(bind=engine)
 
-# Monta el router de cuidadores
+# ——— MONTA EL ROUTER DE CUIDADORES ———
 app.include_router(caregiver_router, prefix="/caregiver", tags=["caregiver"])
 
-# ---- CARGA MODELO EN ARRANQUE ----
+# ——— CONFIG DE MODELO XGBOOST ———
 LABELS = {0: "Normal", 1: "Bradicardia", 2: "Taquicardia"}
 NORMAL_MESSAGES = [
     "Tu corazón es fuerte y saludable ❤️",
@@ -61,12 +74,13 @@ async def load_model():
     app.state.modelo = modelo
     print("✅ Modelo cargado")
 
-# ---- ENDPOINT DE ANÁLISIS DE AUDIO ----
+# ——— ENDPOINT DE ANÁLISIS DE AUDIO ———
 @app.post("/analisis")
 async def analizar_audio(
     audio: UploadFile = File(...),
     glucosa: float = Form(...),
-    unidad: str = Form("mg/dl")
+    unidad: str = Form("mg/dl"),
+    db=Depends(get_db)
 ):
     # 1) Guardar upload raw
     raw_ext = os.path.splitext(audio.filename)[1] or ".3gp"
@@ -112,9 +126,11 @@ async def analizar_audio(
             env = np.abs(y)
             window = int(sr * 0.05)
             env_smooth = np.convolve(env, np.ones(window)/window, mode='same')
-            peaks, _ = find_peaks(env_smooth,
-                                  distance=sr*0.4,
-                                  height=np.mean(env_smooth)*1.2)
+            peaks, _ = find_peaks(
+                env_smooth,
+                distance=sr*0.4,
+                height=np.mean(env_smooth)*1.2
+            )
             duration_sec = len(y) / sr
             bpm = float(np.round(len(peaks)/duration_sec*60, 1))
             beat_times = (peaks/sr).tolist()
@@ -132,15 +148,15 @@ async def analizar_audio(
 
         # 8) Mensajes
         if pred == 0:
-            mensaje      = "Sin riesgo detectado"
-            accion       = "Continúa tu rutina"
+            mensaje     = "Sin riesgo detectado"
+            accion      = "Continúa tu rutina"
             encouragement = random.choice(NORMAL_MESSAGES)
         else:
-            mensaje      = "Riesgo detectado"
-            accion       = "Visita un médico para confirmar"
+            mensaje     = "Riesgo detectado"
+            accion      = "Visita un médico para confirmar"
             encouragement = ""
 
-        # 9) Generar gráfico de forma de onda + picos
+        # 9) Gráfico de forma de onda + picos
         times = np.arange(len(y)) / sr
         plt.figure(figsize=(8, 3))
         plt.plot(times, y, linewidth=0.5)
@@ -176,9 +192,3 @@ async def analizar_audio(
     finally:
         if os.path.exists(wav_tmp):
             os.remove(wav_tmp)
-
-# Ejecutable directo
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8080)), reload=True)
-
