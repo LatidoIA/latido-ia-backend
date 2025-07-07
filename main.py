@@ -13,10 +13,10 @@ import matplotlib.pyplot as plt
 from db import get_db                  # Ahora viene de db.py
 from models import Base                # Para la definición de tablas
  from caregiver import router as caregiver_router
-+from metrics import router as metrics_router
+from metrics import router as metrics_router
 
  app.include_router(caregiver_router)
-+app.include_router(metrics_router)
+ app.include_router(metrics_router)
 
 
 # Crea tablas (también lo hace db.py, pero no está de más)
