@@ -97,6 +97,7 @@ def join_with_code(req: JoinRequest, db: Session = Depends(get_db)):
     return {
         "message": "Unido correctamente como cuidador",
         "patient_id": patient.id
+        "patient_name": patient.name  
     }
 
 
