@@ -36,3 +36,13 @@ class Invitation(Base):
     code       = Column(String(6), unique=True, nullable=False)
     patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
     created_at = Column(DateTime, server_default=func.now())
+
++class Metric(Base):
++    __tablename__ = "metrics"
++    id         = Column(Integer, primary_key=True, index=True)
++    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
++    metric     = Column(String, nullable=False)       # p.ej. "heart_rate"
++    value      = Column(Float, nullable=False)
++    unit       = Column(String, nullable=False)       # p.ej. "bpm"
++    timestamp  = Column(DateTime, server_default=func.now())
++    source     = Column(String, nullable=False)       # p.ej. "healthkit"
