@@ -1,5 +1,5 @@
 # models.py
-from sqlalchemy import Column, Integer, String, Table, ForeignKey, DateTime, func
+from sqlalchemy import Column, Integer, String, Table, ForeignKey, DateTime, Float, func
 from sqlalchemy.orm import relationship, declarative_base
 
 Base = declarative_base()
