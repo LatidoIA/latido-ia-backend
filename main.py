@@ -14,7 +14,7 @@ from scipy.signal import butter, filtfilt, find_peaks
 from pydub import AudioSegment
 import matplotlib.pyplot as plt
 
-from db import get_db
+from db import get_db, engine  # Importa engine para create_all
 from models import Base
 from caregiver import router as caregiver_router
 from metrics import router as metrics_router
@@ -39,7 +39,6 @@ app.add_middleware(
 app.include_router(caregiver_router)
 app.include_router(metrics_router)
 
-# Define constantes y carga de modelo
 LABELS = {0: "Normal", 1: "Bradicardia", 2: "Taquicardia"}
 NORMAL_MESSAGES = [
     "Tu corazón es fuerte y saludable ❤️",
@@ -50,8 +49,8 @@ NORMAL_MESSAGES = [
 
 @app.on_event("startup")
 async def startup_event():
-    # Asegura la creación de tablas si no está hecho en db.py
-    Base.metadata.create_all(bind=get_db().__wrapped__().bind)  # sólo si lo necesitas
+    # Crear tablas definidas en models.py
+    Base.metadata.create_all(bind=engine)
     # Carga modelo IA
     modelo = joblib.load("modelo_xgb_mfcc.pkl")
     app.state.modelo = modelo
@@ -163,4 +162,10 @@ async def analizar_audio(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8080)), reload=True)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 8080)),
+        reload=True
+    )
+
